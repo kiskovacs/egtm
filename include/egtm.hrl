@@ -47,12 +47,21 @@
 -define (EGTM_ENV_DELIM_REC, <<"\n">>).
 -define (EGTM_ENV_DELIM_KV, <<"=">>).
 
+%% Variables that must not leak from the caller's environment
+%% into the EGTM process (unless priv/gtmenv sets them).
+-define (EGTM_ENV_UNSET, ["ydb_repl_instance", "gtm_repl_instance",
+                         "ydb_etrap", "gtm_etrap"]).
+
 -define (str (V), egtm_util:stringify (V)).
+
+%% Logging goes through OTP logger, so it shows up in the host
+%% application's handlers (Elixir Logger included).
+-include_lib ("kernel/include/logger.hrl").
 
 -ifdef (EGTM_TRACE).
 -define (trace (Name), ?trace (Name, [])).
 -define (trace (Name, Args),
-  lager:debug ("EGTM CallTrace: ~s:~s ~s",
+  ?LOG_DEBUG ("EGTM CallTrace: ~s:~s ~s",
     [?MODULE, ?str (Name), ?str (Args)])).
 -define (trace_code (Code), Code).
 -else.
@@ -62,16 +71,16 @@
 -endif.
 
 -define (report_error (Error),
-  lager:error ("EGTM Common Error: ~s: ~s",
+  ?LOG_ERROR ("EGTM Common Error: ~s: ~s",
     [?MODULE, ?str (Error)])).
 
 -define (report_warning (Warn),
-  lager:warning ("EGTM Common Warning: ~s: ~s",
+  ?LOG_WARNING ("EGTM Common Warning: ~s: ~s",
     [?MODULE, ?str (Warn)])).
 
--define (report_info (Info), ?report_info (Info, [])).
+-define (report_info (Info), ?LOG_INFO ("~ts", [Info])).
 -define (report_info (Info, Args),
-  lager:info (Info, Args)).
+  ?LOG_INFO (Info, Args)).
 
 -ifdef (EGTM_METRICS).
 -define (metrics (Name, Fun),

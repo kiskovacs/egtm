@@ -22,7 +22,8 @@
     {vsn, "0.2.4"},
     {modules, []},
     {registered, []},
-    {applications, [kernel, stdlib]},
+    {applications, [kernel, stdlib, deepprops, folsom]},
+    {optional_applications, [folsom]},
     {env, []},
     {mod, {egtm, []}}
 ]}.

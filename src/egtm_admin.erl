@@ -25,13 +25,27 @@
 
 %% @doc EGTM Administration Tools.
 -module (egtm_admin).
--export ([initdb/0, backup/1, restore/1]).
+-export ([initdb/0, ensure_db/0, backup/1, restore/1]).
 
 -include ("egtm.hrl").
 
 %% @doc Initialize database using `$PROJECT/priv/initdb'
 initdb () ->
   output (run_util ("initdb")).
+
+%% @doc Like `initdb/0', but `ok' or `{error, {initdb, Status, OutputBin}}'
+%% depending on the script's exit status; used by `egtm:start/2' so
+%% that EGTM does not come up without a usable database.
+ensure_db () ->
+  case run_status (get_util ("initdb")) of
+    {0, Output} ->
+      output (Output), ok;
+    {Status, Output} ->
+      %% Port output is raw bytes (UTF-8 on most systems)
+      ?LOG_ERROR ("EGTM initdb failed (exit status ~p):~n~ts",
+                  [Status, list_to_binary (Output)]),
+      {error, {initdb, Status, list_to_binary (Output)}}
+  end.
 
 %% @doc Make a ZWR-backup using MUPIP EXTRACT
 backup (File) ->
@@ -41,14 +55,31 @@ backup (File) ->
 restore (File) ->
   output (run_util ("mupip", ["load", File])).
 
+%% Utility output (the whole GDE session on a fresh database)
+%% is only interesting when debugging
 output (String) ->
-  ?report_info (String), String.
+  case string:trim (String) of
+    "" -> ok;
+    _  -> ?LOG_DEBUG ("~ts", [String])
+  end,
+  String.
 
 run_util (Name) -> run_util (Name, []).
 run_util (Name, Args) ->
   Cmd = [get_util (Name), " ", string:join (Args, " ")],
   ?report_info ("Running OS command: ~s", [lists:flatten (Cmd)]),
   os:cmd (lists:flatten (Cmd)).
+
+run_status (Cmd) ->
+  ?report_info ("Running OS command: ~s", [Cmd]),
+  Port = erlang:open_port ({spawn, Cmd}, [exit_status, stderr_to_stdout]),
+  collect (Port, []).
+
+collect (Port, Acc) ->
+  receive
+    {Port, {data, Data}} -> collect (Port, [Acc, Data]);
+    {Port, {exit_status, Status}} -> {Status, lists:flatten (Acc)}
+  end.
 
 get_util (Name) ->
   Path = case code:priv_dir (?EGTM_APPNAME) of

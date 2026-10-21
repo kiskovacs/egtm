@@ -95,17 +95,25 @@
 %% --- Public API ---------
 %% @doc application:start callback, do not use directly!
 start (_Type, _Args) ->
-  lager:start (),
-  application:start (ecache),
+  egtm_cache:init (),
   ?report_info ("Starting up ~p on node ~p...", [?MODULE, node ()]),
-  egtm_admin:initdb (),
-  case operation_mode () of
-    worker  -> egtm_worker_sup:start_link ();
-    manager -> egtm_pool_sup:start_link ()
+  egtm_env:setup_env (),
+  case egtm_admin:ensure_db () of
+    ok ->
+      case operation_mode () of
+        worker  -> egtm_worker_sup:start_link ();
+        manager -> egtm_pool_sup:start_link ()
+      end;
+    Error ->
+      Error
   end.
 
-%% @doc Start EGTM application.
-start () -> application:start (?MODULE).
+%% @doc Start EGTM application (and the applications it needs).
+start () ->
+  case application:ensure_all_started (?MODULE) of
+    {ok, _} -> ok;
+    Error   -> Error
+  end.
 
 %% @doc application:stop callback, do not use directly!
 stop (_State) ->
@@ -134,11 +142,11 @@ get (Gvn, Subs) when is_list (Subs) ->
     true ->
       CKey = {Gvn, Subs},
       TimeOut = egtm_config:param ([egtm,optimize,get_cache,timeout]),
-      case ecache:load (CKey) of
+      case egtm_cache:load (CKey) of
         {ok, Val} ->
           Val;
         _         ->
-          X = PerformIt (), ecache:store (CKey, X, TimeOut), X
+          X = PerformIt (), egtm_cache:store (CKey, X, TimeOut), X
       end;
     _    ->
       PerformIt ()
@@ -466,17 +474,11 @@ xecute_fast_order (Gvn, Subs) ->
 %-define (EGTM_POOL_ENABLED, 1).
 -ifdef (EGTM_POOL_ENABLED).
 operation_mode () ->
-  case egtm_config:param ([egtm, mode]) of
-    single -> worker;
-    pool   ->
-      [NodeS|_] = string:tokens (atom_to_list (node ()), "@"),
-      Node = list_to_atom (NodeS),
-      IsSlave = lists:member (Node,
-        egtm_config:param ([egtm,workers,nodes])),
-      case IsSlave of
-        true  -> worker;
-        false -> manager
-      end
+  case {application:get_env (?MODULE, role),
+        egtm_config:param ([egtm, mode])} of
+    {{ok, worker}, _} -> worker;  %% egtm_pool started us as its worker
+    {_, single} -> worker;
+    {_, pool}   -> manager
   end.
 -else.
 operation_mode () -> worker.
@@ -493,8 +495,20 @@ operation_mode () -> worker.
 perform (Op, Args) ->
   case lists:member (Op, egtm_config:param ([egtm, deny])) of
     true  -> {error, {security, operation_denied, Op}};
-    false -> perform_internal (Op, Args)
+    false -> perform_internal (Op, [ nif_arg (A) || A <- Args ])
   end.
+
+%% The NIF takes Latin-1 char lists; accept binaries (Elixir
+%% strings) as their raw bytes, including binaries embedded in
+%% a formatted reference such as `[<<"^Foo">>, $(, ...]'.
+nif_arg (A) when is_binary (A) -> binary_to_list (A);
+nif_arg (A) when is_list (A) ->
+  case lists:any (fun erlang:is_binary/1, A) of
+    true  -> lists:flatmap (fun (B) when is_binary (B) -> binary_to_list (B);
+                                (C) -> [C] end, A);
+    false -> A
+  end;
+nif_arg (A) -> A.
 
 perform_internal (Operation, Args) ->
   Result = case operation_mode () of
@@ -514,7 +528,7 @@ perform_internal (Operation, Args) ->
 epiece ([], _, _) -> [];
 epiece (_, _, N) when N =< 0 -> [];
 epiece (S, D, N) when N > 0 andalso is_list (S) ->
-  DBin = list_to_binary (D),
+  DBin = iolist_to_binary (D),
   SBin = list_to_binary (S),
   binary_to_list (epiece_internal (binary:split (SBin, DBin), DBin, 1, N)).
 
@@ -529,8 +543,8 @@ clear_cache (Gvn, Subs, Flush) ->
     true ->
       CKey = {Gvn, Subs},
       case Flush of
-        true  -> ecache:flush ();
-        false -> ecache:delete (CKey)
+        true  -> egtm_cache:flush ();
+        false -> egtm_cache:delete (CKey)
       end,
       ok;
     _    -> ok
@@ -566,6 +580,38 @@ basic_test () ->
   ?assertEqual (?MODULE:zversion (), ?MODULE:iget ("zver")),
   ?assertEqual (?MODULE:zversion (), ?MODULE:iget ("zversion")),
 
+  ?MODULE:stop (),
+  ok.
+
+%% Binaries (Elixir strings) work wherever strings do; results
+%% are still char lists of the stored bytes.
+binary_test () ->
+  ?MODULE:start (),
+  Gvn = <<"^EUnit">>, Subs = [<<"egtm:binary">>, <<"k\"q">>],
+  Utf8 = <<"Žluťoučký kůň"/utf8>>,
+
+  ?assertEqual (ok, ?MODULE:set (Gvn, Subs, <<"say \"hi\"">>)),
+  ?assertEqual ("say \"hi\"", ?MODULE:get ("^EUnit", ["egtm:binary", "k\"q"])),
+
+  ?assertEqual (ok, ?MODULE:set (Gvn, Subs, Utf8)),
+  ?assertEqual (Utf8, list_to_binary (?MODULE:get (Gvn, Subs))),
+
+  ?assertEqual (ok, ?MODULE:set (Gvn, Subs, <<"a|b|c">>)),
+  ?assertEqual ("b", ?MODULE:getp (Gvn, Subs, 2, <<"|">>)),
+
+  ?assertEqual (ok, ?MODULE:xecute (<<"set ^EUnit(\"egtm:binary\",\"x\")=1">>)),
+  ?assertEqual ("1", ?MODULE:get (Gvn, [<<"egtm:binary">>, <<"x">>])),
+
+  ?assertEqual (ok, ?MODULE:kill (Gvn, [<<"egtm:binary">>])),
+  ?MODULE:stop (),
+  ok.
+
+%% do/call commands may be as long as xecute code (64 KB buffer),
+%% though M itself limits a line of code to about 8 KB
+call_long_arg_test () ->
+  ?MODULE:start (),
+  Arg = lists:duplicate (2000, $x),
+  ?assertEqual (Arg, ?MODULE:call ("testEcho^%egtmapi", [Arg])),
   ?MODULE:stop (),
   ok.
 

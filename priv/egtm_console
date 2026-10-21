@@ -1,4 +1,4 @@
 #!/bin/sh
 
-erl -pa ebin -pa deps/*/ebin -pa test -pa test/* -sname egtm_console $@
+erl -pa _build/default/lib/*/ebin -sname egtm_console $@
 

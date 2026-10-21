@@ -79,10 +79,10 @@ order_fun (Mod, Gvn, Subs, indirection) ->
 
 -ifndef (EUNIT_HRL).
 -define (debugMsg(S), (begin
-    .io:format ("~s:~w:~w: ~s\n", [?FILE, ?LINE, self (), S]),
+    io:format ("~s:~w:~w: ~s\n", [?FILE, ?LINE, self (), S]),
     ok
   end)).
--define (debugFmt(S, As), (?debugMsg (.io_lib:format ((S), (As))))).
+-define (debugFmt(S, As), (?debugMsg (io_lib:format ((S), (As))))).
 -endif.
 
 %% @doc Performance testing: runs a tc_avg (Fun, Cnt) multiple times.
@@ -126,6 +126,6 @@ perform_speed ([{Fun, Count, Label}|T]) when is_function (Fun, 0) ->
   perform_speed (T).
 
 rnd_str_fun () ->
-  fun (N) -> [$A+random:uniform (26) || _ <- lists:seq (0,N)] end.
+  fun (N) -> [$A+rand:uniform (26) || _ <- lists:seq (0,N)] end.
 
 %% vim: fdm=syntax:fdn=3:tw=74:ts=2:syn=erlang

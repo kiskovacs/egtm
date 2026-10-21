@@ -1,4 +1,4 @@
 #!/bin/sh
 
-gdberl -pa ebin -pa deps/*/ebin -pa test -pa test/* -sname egtm_console $@
+gdberl -pa _build/default/lib/*/ebin -sname egtm_console $@
 

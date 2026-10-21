@@ -1,0 +1,4 @@
+[{<<"deepprops">>,
+  {git,"https://github.com/keynslug/deepprops.git",
+       {ref,"018ab345a2f66d7c9858c32444e284995da7f183"}},
+  0}].

@@ -2,5 +2,5 @@
 
 . `dirname $0`/gtmenv
 
-env | grep -i -e '^EGTM' -e '^gtm'
+env | grep -i -e '^EGTM' -e '^gtm' -e '^ydb_'
 

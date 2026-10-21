@@ -110,15 +110,12 @@ param (Path, Conf) ->
 param () ->
   case application:get_env (module_name (), config) of
     undefined -> 
-      case ct_config_plain:read_config (config_path ()) of
+      case file:consult (config_path ()) of
         {ok, Conf} ->
           application:set_env (module_name (), config, Conf),
           Conf;
         {error, Error} ->
           io:format ("ConfigError: ~p~n", [{config_path (), Error}]),
-          application:set_env (module_name (), config, {}),
-          {};
-        _ ->
           application:set_env (module_name (), config, {}),
           {}
       end;

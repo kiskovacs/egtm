@@ -57,7 +57,7 @@ perform (Operation, Args) ->
 handle_call ({op, Operation, Args} = _Request, _From, State) ->
   OpM = list_to_atom ("m_" ++ atom_to_list (Operation)),
   case catch (apply (?MODULE, OpM, Args)) of
-    {'EXIT',_} -> {reply, {error, when_invoking}, State};
+    {'EXIT', Reason} -> {reply, {error, {Operation, Reason}}, State};
     Result     -> {reply, Result, State}
   end.
 
@@ -103,8 +103,8 @@ m_iget       (_)          -> not_loaded (?LINE).
 nif_init () ->
   SoName = egtm_env:get_priv_dir (?LIBNAME),
   ?trace ("Loading EGTM NIF: ~s", [SoName]),
-  egtm_env:init (),
-  case erlang:load_nif (SoName, 0) of
+  Env = egtm_env:init (),
+  case erlang:load_nif (SoName, Env) of
     %% XXX: NIF is not ready for upgrades yet :-(
     %{error, {upgrade, _}} -> % new and preferred, rather than reload
     %  ?report_warning ("EGTM NIF: upgrade not supported yet!"),
@@ -112,7 +112,10 @@ nif_init () ->
     %{error, {reload, _}} -> % reload is deprecated
     %  ?report_warning ("EGTM NIF: reload not supported yet!"),
     %  ok; % tralala... everything is ok, isn't it? :-)
-    ok -> ok; AnotherError -> AnotherError
+    ok -> ok;
+    AnotherError ->
+      ?report_error ({nif_load_failed, SoName, AnotherError}),
+      AnotherError
   end.
 
 not_loaded (Line) ->

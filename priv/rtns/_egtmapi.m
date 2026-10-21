@@ -55,6 +55,7 @@ txclear(id) k %EGTMTP(id) s %EGTMTP=$G(%EGTMTP)-1 q
 ; Test labels for `call' and `do'
 testIntrinsic(a,b) q +$g(a)+$g(b)           ; to be called by `call'
 testExtrinsic(a,b) s ^ZTMR=+$g(a)+$g(b) q   ; to be called by `do'
+testEcho(a) q $g(a)                         ; to be called by `call'
 testBlocking(n)
   n i f i=0:1:n s ^ZTMR(i)="abc"
   q

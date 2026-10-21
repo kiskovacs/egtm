@@ -7,33 +7,59 @@ if [ ! -d "${EGTM_PRIV}" ] ; then
 fi
 
 export EGTM_TMP=/tmp
-export EGTM_GBLS=${EGTM_PRIV}/gbls
+# Database directory: the `db_dir' application env (exported by
+# egtm_env:setup_env/0), EGTM_GBLS, or priv/gbls by default
+export EGTM_GBLS=${EGTM_GBLS:-${EGTM_PRIV}/gbls}
+
+# Application M routine directories (space separated): the
+# `routines' application env, or EGTM_ROUTINES
+export EGTM_ROUTINES=${EGTM_ROUTINES:-""}
+
+# Compiled routines go next to the database, so read-only
+# source directories (e.g. inside a release) work
+export EGTM_OBJ=${EGTM_OBJ:-${EGTM_GBLS}/o}
 export EGTM_CALLINTAB=${EGTM_PRIV}/calltab.ci
 
 # Database files
 export EGTM_DB_DEFAULT=${EGTM_GBLS}/egtm.dat
 export EGTM_DB_BIG=${EGTM_GBLS}/egtmbig.dat
 
-# Standard GT.M settings
-export gtm_dist=/usr/lib/fis-gtm/current
-export gtmroutines="${gtm_dist} ${EGTM_PRIV}/rtns ."
+# YottaDB installation: EGTM_DIST, or whatever pkg-config reports
+if [ -z "${EGTM_DIST}" ] ; then
+  EGTM_DIST=`pkg-config --variable=prefix yottadb 2>/dev/null`
+fi
+export EGTM_DIST=${EGTM_DIST:-/usr/local/lib/yottadb/current}
+
+# Standard GT.M settings (YottaDB honours the gtm_* names,
+# but any ydb_* equivalent takes precedence -- see below)
+export gtm_dist=${EGTM_DIST}
+export gtmroutines="${EGTM_OBJ}(${EGTM_PRIV}/rtns ${EGTM_ROUTINES}) ."
 export gtmgbldir="${EGTM_GBLS}/egtm.gld"
+export GTMCI=${EGTM_CALLINTAB}
 export gtm_log=${EGTM_TMP}
 export gtm_tmp=${EGTM_TMP}
 export gtm_badchar="NO"
 export gtm_noundef="YES"
 export gtm_nocenable="YES"
 export gtm_prompt="IDEA\$EGTM>"
-export gtm_icu_version=4.8
 export gtm_chset=UTF-8
 export LC_CTYPE=en_US.UTF-8
 
+# Distributions that build ICU with symbol renaming (Arch, Debian, ...)
+# need the exact ICU version; YottaDB cannot detect it there
+if [ -z "${gtm_icu_version}" ] ; then
+  gtm_icu_version=`pkg-config --modversion icu-uc 2>/dev/null`
+fi
+[ -n "${gtm_icu_version}" ] && export gtm_icu_version
+
 # Detect UTF-8 environment
+# YottaDB ships its utility routines (GDE, %XCMD, ...) only
+# as the shared library libyottadbutil.so
 zchs=`echo ${gtm_chset} | tr '[:lower:]' '[:upper:]'`
 if [ ${zchs:-""} = "UTF-8" ] ; then
   export gtm_dist="${gtm_dist}/utf8"
-  export gtmroutines="${gtm_dist} ${gtmroutines}"
 fi
+export gtmroutines="${gtm_dist}/libyottadbutil.so ${gtmroutines}"
 
 # Application-specific environment
 # script can be specified by setting
@@ -44,3 +70,28 @@ fi
 if [ -f ${EGTM_CUSTOM_ENV:-""} ] ; then
   . ${EGTM_CUSTOM_ENV}
 fi
+
+# YottaDB prefers ydb_* over gtm_*, so a shell prepared by
+# ydb_env_set would silently point EGTM at another database.
+# Mirror every setting above into its ydb_* name.
+egtm_mirror () { eval "export $1=\"\${$2}\"" ; }
+egtm_mirror ydb_dist        gtm_dist
+egtm_mirror ydb_routines    gtmroutines
+egtm_mirror ydb_gbldir      gtmgbldir
+egtm_mirror ydb_ci          GTMCI
+egtm_mirror ydb_log         gtm_log
+egtm_mirror ydb_tmp         gtm_tmp
+egtm_mirror ydb_badchar     gtm_badchar
+egtm_mirror ydb_noundef     gtm_noundef
+egtm_mirror ydb_nocenable   gtm_nocenable
+egtm_mirror ydb_prompt      gtm_prompt
+egtm_mirror ydb_chset       gtm_chset
+if [ -n "${gtm_icu_version}" ] ; then
+  egtm_mirror ydb_icu_version gtm_icu_version
+fi
+unset -f egtm_mirror
+# Replication instance of the caller's own environment
+# does not belong to the EGTM database
+unset ydb_repl_instance gtm_repl_instance
+# ...nor does its error trap (ydb_env_set prints "Error occurred")
+unset ydb_etrap gtm_etrap

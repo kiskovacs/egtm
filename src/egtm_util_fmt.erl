@@ -116,6 +116,8 @@ term2str (T) when is_integer (T) -> integer_to_list (T);
 % Let's fall all the floats to the slow and ugly io_lib/~p...
 %term2str (T) when is_float (T) -> float_to_list (T);
 term2str (T) when is_list (T) -> mumps_escape (T);
+%% Binaries (e.g. Elixir strings) are stored as their raw bytes
+term2str (T) when is_binary (T) -> mumps_escape (binary_to_list (T));
 term2str (T) -> term2str (lists:flatten (io_lib:format ("~p", [T]))).
 
 %% @doc Simple quote-escaping for values passed to MUMPS.
